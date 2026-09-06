@@ -1,0 +1,58 @@
+# Five endpoints on one network, in the auth postures you actually find.
+# The scanner is not given a list of MCP servers. It is given a port range.
+services:
+  mcp-open:
+    image: python:3.12-slim
+    container_name: smcp-open
+    environment: {MODE: open, SERVER_NAME: mcp-open, PORT: "8080"}
+    command: python /app/server.py
+    volumes: ["./targets:/app:ro"]
+    networks: [corp]
+
+  mcp-bearer:
+    image: python:3.12-slim
+    container_name: smcp-bearer
+    environment: {MODE: bearer, SERVER_NAME: mcp-bearer, PORT: "8080"}
+    command: python /app/server.py
+    volumes: ["./targets:/app:ro"]
+    networks: [corp]
+
+  mcp-oauth:
+    image: python:3.12-slim
+    container_name: smcp-oauth
+    environment:
+      MODE: oauth
+      SERVER_NAME: mcp-oauth
+      PORT: "8080"
+      PUBLIC_URL: http://mcp-oauth:8080
+    command: python /app/server.py
+    volumes: ["./targets:/app:ro"]
+    networks: [corp]
+
+  legacy-sse:
+    image: python:3.12-slim
+    container_name: smcp-legacy
+    environment: {MODE: legacy-sse, SERVER_NAME: legacy-sse, PORT: "8080"}
+    command: python /app/server.py
+    volumes: ["./targets:/app:ro"]
+    networks: [corp]
+
+  build-dashboard:
+    image: python:3.12-slim
+    container_name: smcp-decoy
+    environment: {MODE: decoy, SERVER_NAME: build-dashboard, PORT: "8080"}
+    command: python /app/server.py
+    volumes: ["./targets:/app:ro"]
+    networks: [corp]
+
+  scanner:
+    image: python:3.12-slim
+    container_name: smcp-scanner
+    command: sleep infinity
+    volumes: ["./scanner:/scanner:ro"]
+    networks: [corp]
+    depends_on: [mcp-open, mcp-bearer, mcp-oauth, legacy-sse, build-dashboard]
+
+networks:
+  corp:
+    name: shadow-mcp-corp
