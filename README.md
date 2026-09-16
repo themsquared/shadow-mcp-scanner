@@ -1,5 +1,7 @@
 # shadow-mcp-scanner
 
+> 📖 **Read the write-up:** [Finding the MCP Servers Your Platform Team Doesn't Know About](https://webofmike.com/shadow-mcp-servers/)
+
 Find the MCP servers on your network that nobody registered, and classify what they
 hand to an anonymous caller.
 
