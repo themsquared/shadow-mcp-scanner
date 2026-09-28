@@ -1,0 +1,101 @@
+{
+  "findings": [
+    {
+      "endpoint": "http://legacy-sse:8080/sse",
+      "posture": "OPEN",
+      "transport": "http+sse (legacy)",
+      "server": null,
+      "protocol_version": null,
+      "tools": [
+        {
+          "name": "read_file",
+          "description": "Read a file from the build agent's workspace."
+        }
+      ],
+      "auth_hint": null,
+      "notes": [
+        "pre-Streamable HTTP transport still exposed"
+      ]
+    },
+    {
+      "endpoint": "http://mcp-dual:8080/mcp",
+      "posture": "OPEN",
+      "transport": "streamable-http",
+      "server": "mcp-dual",
+      "protocol_version": "2025-06-18",
+      "tools": [
+        {
+          "name": "read_runbook",
+          "description": "Read an operations runbook from the internal wiki."
+        }
+      ],
+      "auth_hint": null,
+      "notes": []
+    },
+    {
+      "endpoint": "http://mcp-open:8080/mcp",
+      "posture": "OPEN",
+      "transport": "streamable-http",
+      "server": "mcp-open",
+      "protocol_version": "2025-06-18",
+      "tools": [
+        {
+          "name": "run_query",
+          "description": "Execute a read-only SQL statement against the analytics warehouse (warehouse-prod.internal:5439, service account svc_analytics)."
+        },
+        {
+          "name": "send_email",
+          "description": "Send an email as noreply@ from the shared notifications mailbox."
+        },
+        {
+          "name": "list_customers",
+          "description": "Return customer records from the CRM, including billing contact and plan."
+        }
+      ],
+      "auth_hint": null,
+      "notes": []
+    },
+    {
+      "endpoint": "http://mcp-bearer:8080/mcp",
+      "posture": "PROTECTED (no discovery)",
+      "transport": "streamable-http",
+      "server": null,
+      "protocol_version": null,
+      "tools": [],
+      "auth_hint": "Bearer",
+      "notes": []
+    },
+    {
+      "endpoint": "http://mcp-oauth:8080/mcp",
+      "posture": "PROTECTED (RFC 9728)",
+      "transport": "streamable-http",
+      "server": null,
+      "protocol_version": null,
+      "tools": [],
+      "auth_hint": "Bearer resource_metadata=\"http://mcp-oauth:8080/.well-known/oauth-protected-resource\"",
+      "notes": [
+        "authorization_servers=https://idp.internal/realms/agents"
+      ]
+    },
+    {
+      "endpoint": "http://build-dashboard:8080",
+      "posture": "not MCP",
+      "transport": null,
+      "server": null,
+      "protocol_version": null,
+      "tools": [],
+      "auth_hint": null,
+      "notes": []
+    },
+    {
+      "endpoint": "http://mcp-modern:8080",
+      "posture": "not MCP",
+      "transport": null,
+      "server": null,
+      "protocol_version": null,
+      "tools": [],
+      "auth_hint": null,
+      "notes": []
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+
+ENDPOINT                           POSTURE                    TRANSPORT            TOOLS
+------------------------------------------------------------------------------------------------
+http://legacy-sse:8080/sse         OPEN                       http+sse (legacy)    1
+http://mcp-dual:8080/mcp           OPEN                       streamable-http      1
+http://mcp-open:8080/mcp           OPEN                       streamable-http      3
+http://mcp-bearer:8080/mcp         PROTECTED (no discovery)   streamable-http      -
+http://mcp-oauth:8080/mcp          PROTECTED (RFC 9728)       streamable-http      -
+http://build-dashboard:8080        not MCP                    -                    -
+http://mcp-modern:8080             not MCP                    -                    -
+
+  http://legacy-sse:8080/sse answered tools/list with no credentials:
+    - read_file: Read a file from the build agent's workspace.
+
+  http://mcp-dual:8080/mcp answered tools/list with no credentials:
+    - read_runbook: Read an operations runbook from the internal wiki.
+
+  http://mcp-open:8080/mcp answered tools/list with no credentials:
+    - run_query: Execute a read-only SQL statement against the analytics warehouse (warehous...
+    - send_email: Send an email as noreply@ from the shared notifications mailbox.
+    - list_customers: Return customer records from the CRM, including billing contact and plan.
+
+scanned 7 endpoints: 5 speak MCP, 3 open with no auth
+

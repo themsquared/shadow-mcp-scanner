@@ -3,10 +3,9 @@
 
 The scanner asks three questions of every host:port it is given.
 
-  1. Does this speak MCP?   POST a JSON-RPC `initialize`. A server that answers
-     with a result carrying protocolVersion/serverInfo is an MCP server, whatever
-     the port or hostname says. Also probes GET /sse for the legacy HTTP+SSE
-     transport, which many deployed servers still run.
+  1. Does this speak MCP?   POST JSON-RPC `server/discover` (2026-07-28) first.
+     Fall back to `initialize` for handshake-era servers (2025-11-25 and
+     earlier). Then probe GET /sse for the deprecated HTTP+SSE transport.
   2. Does it want credentials?  A 401 means yes. No 401 means the endpoint is
      open to anyone who can route to it.
   3. If it is open, what does it hand over?  `tools/list` returns the names,
@@ -22,7 +21,12 @@ import sys
 import urllib.error
 import urllib.request
 
-PROTOCOL_VERSION = "2025-06-18"
+LEGACY_PROTOCOL = "2025-06-18"
+MODERN_PROTOCOL = "2026-07-28"
+META_VERSION = "io.modelcontextprotocol/protocolVersion"
+META_CLIENT_INFO = "io.modelcontextprotocol/clientInfo"
+META_CLIENT_CAPS = "io.modelcontextprotocol/clientCapabilities"
+META_SERVER_INFO = "io.modelcontextprotocol/serverInfo"
 UA = "shadow-mcp-scanner/1.0 (+https://github.com/themsquared/shadow-mcp-scanner)"
 
 # Posture values, ordered worst to best. Drives exit codes and the summary.
@@ -31,8 +35,17 @@ PROTECTED_NO_DISCOVERY = "PROTECTED (no discovery)"
 PROTECTED_RFC9728 = "PROTECTED (RFC 9728)"
 NOT_MCP = "not MCP"
 
+# Protocol-era column. Protected endpoints that 401 before a handshake
+# cannot be era-classified; those stay legacy because no DiscoverResult
+# was observed.
+PROTO_MODERN = "modern"
+PROTO_LEGACY = "legacy"
+PROTO_DUAL = "dual"
+PROTO_SSE = "sse-legacy"
+PROTO_NOT_MCP = "not-mcp"
 
-def _post_json(url, payload, timeout, token=None):
+
+def _post_json(url, payload, timeout, token=None, extra_headers=None):
     body = json.dumps(payload).encode()
     req = urllib.request.Request(url, data=body, method="POST")
     req.add_header("Content-Type", "application/json")
@@ -41,6 +54,8 @@ def _post_json(url, payload, timeout, token=None):
     req.add_header("User-Agent", UA)
     if token:
         req.add_header("Authorization", f"Bearer {token}")
+    for key, value in (extra_headers or {}).items():
+        req.add_header(key, value)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status, dict(resp.headers), resp.read()
@@ -60,12 +75,80 @@ def _get(url, timeout, accept=None):
         return e.code, dict(e.headers), e.read()
 
 
+def _modern_meta():
+    return {
+        META_VERSION: MODERN_PROTOCOL,
+        META_CLIENT_INFO: {"name": "shadow-mcp-scanner", "version": "1.0"},
+        META_CLIENT_CAPS: {},
+    }
+
+
+def _modern_headers(method):
+    return {
+        "MCP-Protocol-Version": MODERN_PROTOCOL,
+        "Mcp-Method": method,
+    }
+
+
+def _parse_json(raw):
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+
+def _is_discover_result(result):
+    if not isinstance(result, dict):
+        return False
+    if "supportedVersions" in result:
+        return True
+    meta = result.get("_meta") or {}
+    return isinstance(meta, dict) and META_SERVER_INFO in meta
+
+
+def _is_initialize_result(result):
+    if not isinstance(result, dict):
+        return False
+    return "protocolVersion" in result or "serverInfo" in result
+
+
+def _apply_401(finding, headers, path, base):
+    finding["transport"] = "streamable-http"
+    www = headers.get("WWW-Authenticate", "")
+    finding["auth_hint"] = www or "(401, no WWW-Authenticate)"
+    if "resource_metadata=" in www:
+        finding["posture"] = PROTECTED_RFC9728
+    else:
+        finding["posture"] = PROTECTED_NO_DISCOVERY
+    finding["endpoint"] = base + path
+    # No DiscoverResult observed, so the era column stays legacy.
+    if finding.get("protocol") == PROTO_NOT_MCP:
+        finding["protocol"] = PROTO_LEGACY
+    return finding
+
+
+def _fetch_resource_metadata(finding, headers, timeout):
+    www = headers.get("WWW-Authenticate", "")
+    if "resource_metadata=" not in www:
+        return
+    meta_url = www.split('resource_metadata="', 1)[1].split('"', 1)[0]
+    try:
+        _, _, mraw = _get(meta_url, timeout)
+        meta = json.loads(mraw)
+        finding["notes"].append(
+            "authorization_servers=" + ",".join(meta.get("authorization_servers", []))
+        )
+    except Exception:
+        finding["notes"].append("resource_metadata advertised but not fetchable")
+
+
 def probe(host, port, timeout=3.0, token=None):
     """Return a finding dict for one host:port."""
     base = f"http://{host}:{port}"
     finding = {
         "endpoint": base,
         "posture": NOT_MCP,
+        "protocol": PROTO_NOT_MCP,
         "transport": None,
         "server": None,
         "protocol_version": None,
@@ -82,62 +165,90 @@ def probe(host, port, timeout=3.0, token=None):
         finding["notes"].append(f"unreachable: {e.__class__.__name__}")
         return finding
 
+    discover = {
+        "jsonrpc": "2.0",
+        "id": "discover-1",
+        "method": "server/discover",
+        "params": {"_meta": _modern_meta()},
+    }
     init = {
         "jsonrpc": "2.0",
         "id": 1,
         "method": "initialize",
         "params": {
-            "protocolVersion": PROTOCOL_VERSION,
+            "protocolVersion": LEGACY_PROTOCOL,
             "capabilities": {},
             "clientInfo": {"name": "shadow-mcp-scanner", "version": "1.0"},
         },
     }
 
-    status, headers, raw = (None, {}, b"")
     for path in ("/mcp", "/"):
+        url = base + path
         try:
-            status, headers, raw = _post_json(base + path, init, timeout, token)
+            status, headers, raw = _post_json(
+                url, discover, timeout, token, extra_headers=_modern_headers("server/discover")
+            )
+        except (urllib.error.URLError, socket.timeout, OSError) as e:
+            finding["notes"].append(f"{path} discover: {e.__class__.__name__}")
+            status, headers, raw = (None, {}, b"")
+
+        if status == 401:
+            _apply_401(finding, headers, path, base)
+            _fetch_resource_metadata(finding, headers, timeout)
+            return finding
+
+        if status == 200:
+            doc = _parse_json(raw) or {}
+            result = doc.get("result") or {}
+            if _is_discover_result(result):
+                finding["transport"] = "streamable-http"
+                finding["posture"] = OPEN
+                finding["endpoint"] = url
+                finding["protocol"] = PROTO_MODERN
+                versions = result.get("supportedVersions") or [MODERN_PROTOCOL]
+                if isinstance(versions, list):
+                    finding["protocol_version"] = ",".join(str(v) for v in versions)
+                else:
+                    finding["protocol_version"] = str(versions)
+                info = (result.get("_meta") or {}).get(META_SERVER_INFO) or {}
+                finding["server"] = info.get("name")
+                # Dual-era servers still answer initialize.
+                try:
+                    istatus, _, iraw = _post_json(url, init, timeout, token)
+                except (urllib.error.URLError, socket.timeout, OSError):
+                    istatus, iraw = (None, b"")
+                if istatus == 200:
+                    idoc = _parse_json(iraw) or {}
+                    if _is_initialize_result(idoc.get("result") or {}):
+                        finding["protocol"] = PROTO_DUAL
+                finding["tools"] = _list_tools(url, timeout, token, modern=True)
+                return finding
+
+        try:
+            status, headers, raw = _post_json(url, init, timeout, token)
         except (urllib.error.URLError, socket.timeout, OSError) as e:
             finding["notes"].append(f"{path}: {e.__class__.__name__}")
             continue
 
         if status == 401:
-            finding["transport"] = "streamable-http"
-            www = headers.get("WWW-Authenticate", "")
-            finding["auth_hint"] = www or "(401, no WWW-Authenticate)"
-            if "resource_metadata=" in www:
-                finding["posture"] = PROTECTED_RFC9728
-                meta_url = www.split('resource_metadata="', 1)[1].split('"', 1)[0]
-                try:
-                    _, _, mraw = _get(meta_url, timeout)
-                    meta = json.loads(mraw)
-                    finding["notes"].append(
-                        "authorization_servers="
-                        + ",".join(meta.get("authorization_servers", []))
-                    )
-                except Exception:
-                    finding["notes"].append("resource_metadata advertised but not fetchable")
-            else:
-                finding["posture"] = PROTECTED_NO_DISCOVERY
-            finding["endpoint"] = base + path
+            _apply_401(finding, headers, path, base)
+            _fetch_resource_metadata(finding, headers, timeout)
             return finding
 
         if status == 200:
-            try:
-                doc = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
+            doc = _parse_json(raw) or {}
             result = doc.get("result") or {}
-            if "protocolVersion" in result or "serverInfo" in result:
+            if _is_initialize_result(result):
                 finding["transport"] = "streamable-http"
                 finding["posture"] = OPEN
-                finding["endpoint"] = base + path
+                finding["endpoint"] = url
+                finding["protocol"] = PROTO_LEGACY
                 finding["protocol_version"] = result.get("protocolVersion")
                 finding["server"] = (result.get("serverInfo") or {}).get("name")
-                finding["tools"] = _list_tools(base + path, timeout, token)
+                finding["tools"] = _list_tools(url, timeout, token, modern=False)
                 return finding
 
-    # Legacy HTTP+SSE transport. An `endpoint` event is the giveaway.
+    # Deprecated HTTP+SSE transport. An `endpoint` event is the giveaway.
     for path in ("/sse", "/"):
         try:
             status, headers, raw = _get(base + path, timeout, accept="text/event-stream")
@@ -147,21 +258,27 @@ def probe(host, port, timeout=3.0, token=None):
         if status == 200 and "text/event-stream" in ctype and b"event: endpoint" in raw:
             finding["transport"] = "http+sse (legacy)"
             finding["posture"] = OPEN
+            finding["protocol"] = PROTO_SSE
             finding["endpoint"] = base + path
             finding["notes"].append("pre-Streamable HTTP transport still exposed")
             # The SSE stream names where to POST; tools live there.
             msg_path = raw.split(b"data:", 1)[1].split(b"\n", 1)[0].strip().decode()
-            finding["tools"] = _list_tools(base + msg_path, timeout, token)
+            finding["tools"] = _list_tools(base + msg_path, timeout, token, modern=False)
             return finding
 
     return finding
 
 
-def _list_tools(url, timeout, token=None):
+def _list_tools(url, timeout, token=None, modern=False):
     """An open server will describe its own capability to an anonymous caller."""
-    payload = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
+    if modern:
+        payload = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {"_meta": _modern_meta()}}
+        extra = _modern_headers("tools/list")
+    else:
+        payload = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
+        extra = None
     try:
-        status, _, raw = _post_json(url, payload, timeout, token)
+        status, _, raw = _post_json(url, payload, timeout, token, extra_headers=extra)
         if status != 200:
             return []
         doc = json.loads(raw)
@@ -228,12 +345,15 @@ def render(findings):
     openf = [f for f in findings if f["posture"] == OPEN]
 
     print()
-    print(f"{'ENDPOINT':<34} {'POSTURE':<26} {'TRANSPORT':<20} TOOLS")
-    print("-" * 96)
+    print(
+        f"{'ENDPOINT':<34} {'POSTURE':<26} {'PROTOCOL':<12} {'TRANSPORT':<20} TOOLS"
+    )
+    print("-" * 108)
     for f in findings:
         tools = str(len(f["tools"])) if f["posture"] == OPEN else "-"
         print(
             f"{f['endpoint']:<34} {f['posture']:<26} "
+            f"{(f.get('protocol') or '-'):<12} "
             f"{(f['transport'] or '-'):<20} {tools}"
         )
 

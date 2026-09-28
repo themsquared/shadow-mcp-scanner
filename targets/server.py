@@ -20,6 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 MODE = os.environ.get("MODE", "open")
 NAME = os.environ.get("SERVER_NAME", MODE)
 PORT = int(os.environ.get("PORT", "8080"))
+BIND = os.environ.get("BIND", "0.0.0.0")
 TOKEN = os.environ.get("TOKEN", "s3cret-token")
 # Advertised externally so the metadata document matches how a scanner reaches it.
 PUBLIC = os.environ.get("PUBLIC_URL", f"http://{NAME}:{PORT}")
@@ -396,5 +397,5 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"[{NAME}] mode={MODE} listening on :{PORT}", flush=True)
-    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+    print(f"[{NAME}] mode={MODE} listening on {BIND}:{PORT}", flush=True)
+    ThreadingHTTPServer((BIND, PORT), Handler).serve_forever()

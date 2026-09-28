@@ -1,0 +1,7 @@
+test_finds_expected_servers (__main__.DiscoverLocalTests.test_finds_expected_servers) ... ok
+test_redacts_secrets_and_query_strings (__main__.DiscoverLocalTests.test_redacts_secrets_and_query_strings) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.006s
+
+OK
