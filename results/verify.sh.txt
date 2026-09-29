@@ -1,0 +1,43 @@
+classification
+  PASS  mcp-open classified OPEN
+  PASS  mcp-bearer classified PROTECTED no discovery
+  PASS  mcp-oauth classified PROTECTED RFC 9728
+  PASS  legacy-sse found on the legacy transport
+  PASS  build-dashboard is not flagged as MCP
+  PASS  mcp-modern classified OPEN
+  PASS  mcp-dual classified OPEN
+protocol era
+  PASS  mcp-modern protocol is modern
+  PASS  mcp-dual protocol is dual
+  PASS  mcp-open protocol is legacy
+  PASS  legacy-sse protocol is sse-legacy
+  PASS  build-dashboard protocol is not-mcp
+disclosure without credentials
+  PASS  mcp-open leaked 3 tools
+  PASS    run_query
+  PASS    send_email
+  PASS    list_customers
+  PASS  warehouse hostname leaked in a tool description
+  PASS  legacy server leaked read_file
+  PASS  open server disclosed its protocol version
+  PASS  modern server leaked list_object_store
+  PASS  dual server leaked read_runbook
+  PASS  modern server advertised 2026-07-28
+protected servers disclose nothing
+  PASS  no tools from mcp-bearer
+  PASS  no tools from mcp-oauth
+RFC 9728 discovery
+  PASS  oauth 401 advertises resource_metadata
+  PASS  bearer 401 advertises nothing usable
+  PASS  authorization server resolved from metadata
+report
+  PASS  summary counts 6 MCP, 4 open
+  PASS  table includes a PROTOCOL column
+CI gate
+  PASS  --fail-on-open exits 1 on an open server
+  PASS  --fail-on-open exits 0 when nothing is open
+  PASS  --fail-on-open exits 1 on a modern open server
+local discovery
+  PASS  discover_local fixture tests
+
+33 assertions: 33 pass, 0 fail

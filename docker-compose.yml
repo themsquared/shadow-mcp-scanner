@@ -1,5 +1,5 @@
-# Five endpoints on one network, in the auth postures you actually find.
-# The scanner is not given a list of MCP servers. It is given a port range.
+# Seven endpoints on one network, in the auth postures and protocol eras
+# you actually find. The scanner is not given a list of MCP servers.
 services:
   mcp-open:
     image: python:3.12-slim
@@ -45,13 +45,29 @@ services:
     volumes: ["./targets:/app:ro"]
     networks: [corp]
 
+  mcp-modern:
+    image: python:3.12-slim
+    container_name: smcp-modern
+    environment: {MODE: modern, SERVER_NAME: mcp-modern, PORT: "8080"}
+    command: python /app/server.py
+    volumes: ["./targets:/app:ro"]
+    networks: [corp]
+
+  mcp-dual:
+    image: python:3.12-slim
+    container_name: smcp-dual
+    environment: {MODE: dual, SERVER_NAME: mcp-dual, PORT: "8080"}
+    command: python /app/server.py
+    volumes: ["./targets:/app:ro"]
+    networks: [corp]
+
   scanner:
     image: python:3.12-slim
     container_name: smcp-scanner
     command: sleep infinity
     volumes: ["./scanner:/scanner:ro"]
     networks: [corp]
-    depends_on: [mcp-open, mcp-bearer, mcp-oauth, legacy-sse, build-dashboard]
+    depends_on: [mcp-open, mcp-bearer, mcp-oauth, legacy-sse, build-dashboard, mcp-modern, mcp-dual]
 
 networks:
   corp:
