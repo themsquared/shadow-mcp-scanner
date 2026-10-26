@@ -11,3 +11,7 @@ unmodified `scanner/scan.py` from `main` (initialize, then `GET /sse`).
 scanner started probing `server/discover` first.
 
 `verify.sh.txt` is the full `scripts/verify.sh` run after that change.
+
+`compose-verify-2026-10-26.md` is a timed `docker compose` bring-up plus
+`scripts/verify.sh` from `main`, with pass/fail counts and hardware. That run
+used compose service-name networking (not `lab_local.sh`).
